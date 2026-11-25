@@ -41,12 +41,20 @@ compactly supported test.
   `(L + z)⁻¹`. Here `z = b + (t + θ) i` for a jet with real offset `b` and ordinate `t`, and `θ`
   is the frequency of the base character of the jet along the section
   (`exists_section_character_frequency`); `θ = 0` when the base character is trivial on the
-  section.
+  section, and `exists_spectralBasepointChoice_section` gives such base characters.
 * `spectralStripJet_pairing_forwardLaplace_add_backwardLaplace`: the diagonal
   `2 L / (L ^ 2 - z ^ 2)` of `R`.
 * `spectralStripForwardLaplace_mem_globalThetaSobolev`,
   `spectralStripBackwardLaplace_mem_globalThetaSobolev`: both transforms preserve the closed
   theta subspace, so they act on the strip quotient.
+* `exists_bruhatCompactSupport_section_laplace`: every compactly supported Bruhat test `φ` is
+  the convolution along the section of `exp (-L x)`, `x > 0`, with a test, namely `L φ` minus
+  the derivative of `φ` along the section. This is `φ = (φ' + L φ) ∗ p_L` of step 6.
+* `exists_hardySobolevTestAction_eq_forwardLaplace_comp`,
+  `exists_spectralConvolution_eq_forwardLaplace_comp`: hence the action of every test, on `W`
+  and on the strip quotient, is `P⁺` after the action of another test. The descended `P⁺` is
+  bounded but not Hilbert–Schmidt on the whole quotient in general, so this gives a product of
+  two Hilbert–Schmidt operators only on each component of the norm-one group.
 -/
 
 @[expose] public noncomputable section
@@ -253,6 +261,111 @@ private theorem integral_translate_mul {G : Type*} [Group G] [MeasurableSpace G]
     rw [hx, hy]
   rw [integral_congr_ae h1, ← integral_mul_left_eq_self (μ := μ) (fun x ↦ f (h⁻¹ * x) * J x) h]
   simp only [inv_mul_cancel_left]
+
+/-- The Laplace transform along a path of an integrated action. Let `ρ` be a strongly
+continuous action of a group with a left-invariant measure, `γ` a continuous path whose
+operators are dominated by `M`, and `φ`, `ψ` continuous compactly supported kernels such that
+`φ` is the convolution of `ψ` along the path with `exp (-L x)`, `x > 0`. Then the Laplace
+transform along the path of the vector integrated against `ψ` is the vector integrated against
+`φ`. The proof pairs with a continuous functional and exchanges two scalar integrals. -/
+private theorem laplace_integral_smul_orbit {G E : Type*} [Group G] [TopologicalSpace G]
+    [IsTopologicalGroup G] [MeasurableSpace G] [BorelSpace G] [SecondCountableTopology G]
+    (μ : Measure G) [μ.IsMulLeftInvariant] [IsFiniteMeasureOnCompacts μ] [SFinite μ]
+    [NormedAddCommGroup E] [NormedSpace ℂ E] [CompleteSpace E]
+    (ρ : G →* (E →L[ℂ] E)) (hρ : ∀ w, Continuous fun g ↦ ρ g w)
+    (γ : ℝ → G) (hγ : Continuous γ) {φ ψ : G → ℂ} (hφ : Continuous φ)
+    (hφc : HasCompactSupport φ) (hψ : Continuous ψ) (hψc : HasCompactSupport ψ) {L : ℝ}
+    {M : ℝ → ℝ} (hM : ∀ x, 0 < x → ‖ρ (γ x)‖ ≤ M x)
+    (hMint : IntegrableOn (fun x ↦ Real.exp (-L * x) * M x) (Ioi 0))
+    (hconv : ∀ g, ∫ x in Ioi 0, Real.exp (-L * x) • ψ ((γ x)⁻¹ * g) = φ g) (u : E) :
+    ∫ x in Ioi 0, Real.exp (-L * x) • ρ (γ x) (∫ g, ψ g • ρ g u ∂μ) =
+      ∫ g, φ g • ρ g u ∂μ := by
+  have hψu : Integrable (fun g ↦ ψ g • ρ g u) μ :=
+    (hψ.smul (hρ u)).integrable_of_hasCompactSupport hψc.smul_right
+  have hφu : Integrable (fun g ↦ φ g • ρ g u) μ :=
+    (hφ.smul (hρ u)).integrable_of_hasCompactSupport hφc.smul_right
+  have hψi : Integrable ψ μ := hψ.integrable_of_hasCompactSupport hψc
+  set v : E := ∫ g, ψ g • ρ g u ∂μ with hv
+  have hxv : IntegrableOn (fun x ↦ Real.exp (-L * x) • ρ (γ x) v) (Ioi 0) := by
+    refine Integrable.mono' (hMint.mul_const ‖v‖) ?_ ?_
+    · exact ((Real.continuous_exp.comp (continuous_const.mul continuous_id)).smul
+        ((hρ v).comp hγ)).aestronglyMeasurable
+    · refine (ae_restrict_mem measurableSet_Ioi).mono fun x hx ↦ ?_
+      rw [norm_smul, Real.norm_of_nonneg (Real.exp_pos _).le, mul_assoc]
+      exact mul_le_mul_of_nonneg_left (((ρ (γ x)).le_opNorm v).trans
+        (mul_le_mul_of_nonneg_right (hM x hx) (norm_nonneg v))) (Real.exp_pos _).le
+  refine (SeparatingDual.eq_iff_forall_dual_eq (R := ℂ)).mpr fun Λ ↦ ?_
+  rw [← Λ.integral_comp_comm hxv, ← Λ.integral_comp_comm hφu]
+  obtain ⟨Cu, hCu⟩ := hψc.exists_bound_of_continuousOn (hρ u).continuousOn
+  have hC' : ∀ k ∈ tsupport ψ, ‖ρ k u‖ ≤ max Cu 0 := fun k hk ↦
+    (hCu k hk).trans (le_max_left _ _)
+  let K : ℝ → G → ℂ := fun x g ↦ (Real.exp (-L * x) • ψ ((γ x)⁻¹ * g)) * Λ (ρ g u)
+  have hKc : Continuous (Function.uncurry K) :=
+    ((Real.continuous_exp.comp (continuous_const.mul continuous_fst)).smul
+      (hψ.comp ((hγ.comp continuous_fst).inv.mul continuous_snd))).mul
+      (Λ.continuous.comp ((hρ u).comp continuous_snd))
+  -- A pointwise bound for the kernel.
+  have hKb (x : ℝ) (g : G) : ‖K x g‖ ≤
+      Real.exp (-L * x) * ‖ρ (γ x)‖ * (‖Λ‖ * max Cu 0) * ‖ψ ((γ x)⁻¹ * g)‖ := by
+    by_cases h0 : ψ ((γ x)⁻¹ * g) = 0
+    · simp [K, h0]
+    · have hg : ρ g u = ρ (γ x) (ρ ((γ x)⁻¹ * g) u) := by
+        conv_lhs => rw [← mul_inv_cancel_left (γ x) g, map_mul, mul_apply_eq_comp]
+      have h1 : ‖Λ (ρ g u)‖ ≤ ‖Λ‖ * (‖ρ (γ x)‖ * max Cu 0) := by
+        refine (Λ.le_opNorm _).trans (mul_le_mul_of_nonneg_left ?_ (norm_nonneg _))
+        rw [hg]
+        exact ((ρ (γ x)).le_opNorm _).trans
+          (mul_le_mul_of_nonneg_left (hC' _ (subset_tsupport _ h0)) (norm_nonneg _))
+      calc ‖K x g‖ = Real.exp (-L * x) * ‖ψ ((γ x)⁻¹ * g)‖ * ‖Λ (ρ g u)‖ := by
+            simp only [K, norm_mul, norm_smul, Real.norm_eq_abs, Real.abs_exp]
+        _ ≤ Real.exp (-L * x) * ‖ψ ((γ x)⁻¹ * g)‖ * (‖Λ‖ * (‖ρ (γ x)‖ * max Cu 0)) :=
+            mul_le_mul_of_nonneg_left h1 (mul_nonneg (Real.exp_pos _).le (norm_nonneg _))
+        _ = _ := by ring
+  have hKx (x : ℝ) : Integrable (fun g ↦ K x g) μ :=
+    Integrable.mono' ((hψi.norm.comp_mul_left (γ x)⁻¹).const_mul
+        (Real.exp (-L * x) * ‖ρ (γ x)‖ * (‖Λ‖ * max Cu 0)))
+      (hKc.comp (continuous_const.prodMk continuous_id)).aestronglyMeasurable
+      (.of_forall fun g ↦ hKb x g)
+  have hshift (x : ℝ) : ∫ g, ‖ψ ((γ x)⁻¹ * g)‖ ∂μ = ∫ g, ‖ψ g‖ ∂μ :=
+    integral_mul_left_eq_self (fun g ↦ ‖ψ g‖) (γ x)⁻¹
+  have hKint : Integrable (Function.uncurry K) ((volume.restrict (Ioi (0 : ℝ))).prod μ) := by
+    refine (integrable_prod_iff hKc.aestronglyMeasurable).mpr ⟨.of_forall hKx, ?_⟩
+    refine Integrable.mono' (hMint.mul_const ((‖Λ‖ * max Cu 0) * ∫ g, ‖ψ g‖ ∂μ))
+      hKc.aestronglyMeasurable.norm.integral_prod_right' ?_
+    refine (ae_restrict_mem measurableSet_Ioi).mono fun x hx ↦ ?_
+    rw [Real.norm_of_nonneg (integral_nonneg fun g ↦ norm_nonneg _)]
+    calc ∫ g, ‖Function.uncurry K (x, g)‖ ∂μ
+        ≤ ∫ g, Real.exp (-L * x) * ‖ρ (γ x)‖ * (‖Λ‖ * max Cu 0) * ‖ψ ((γ x)⁻¹ * g)‖ ∂μ :=
+          integral_mono (hKx x).norm ((hψi.norm.comp_mul_left (γ x)⁻¹).const_mul _)
+            fun g ↦ hKb x g
+      _ = Real.exp (-L * x) * ‖ρ (γ x)‖ * ((‖Λ‖ * max Cu 0) * ∫ g, ‖ψ g‖ ∂μ) := by
+          rw [integral_const_mul, hshift, mul_assoc]
+      _ ≤ Real.exp (-L * x) * M x * ((‖Λ‖ * max Cu 0) * ∫ g, ‖ψ g‖ ∂μ) :=
+          mul_le_mul_of_nonneg_right
+            (mul_le_mul_of_nonneg_left (hM x hx) (Real.exp_pos _).le)
+            (mul_nonneg (mul_nonneg (norm_nonneg _) (le_max_right _ _))
+              (integral_nonneg fun g ↦ norm_nonneg _))
+  -- The functional of the damped orbit is an integral of the kernel.
+  have hA (x : ℝ) : Λ (Real.exp (-L * x) • ρ (γ x) v) = ∫ g, K x g ∂μ := by
+    have h1 : Λ (ρ (γ x) v) = ∫ g, ψ g * Λ (ρ (γ x * g) u) ∂μ :=
+      calc Λ (ρ (γ x) v) = (Λ.comp (ρ (γ x))) (∫ g, ψ g • ρ g u ∂μ) := rfl
+        _ = ∫ g, (Λ.comp (ρ (γ x))) (ψ g • ρ g u) ∂μ :=
+            ((Λ.comp (ρ (γ x))).integral_comp_comm hψu).symm
+        _ = ∫ g, ψ g * Λ (ρ (γ x * g) u) ∂μ := integral_congr_ae (.of_forall fun g ↦ by
+            change Λ (ρ (γ x) (ψ g • ρ g u)) = ψ g * Λ (ρ (γ x * g) u)
+            rw [map_smul, map_smul, smul_eq_mul, map_mul, mul_apply_eq_comp])
+    have h2 : ∫ g, ψ g * Λ (ρ (γ x * g) u) ∂μ = ∫ g, ψ ((γ x)⁻¹ * g) * Λ (ρ g u) ∂μ := by
+      rw [← integral_mul_left_eq_self (μ := μ) (fun g ↦ ψ ((γ x)⁻¹ * g) * Λ (ρ g u)) (γ x)]
+      simp only [inv_mul_cancel_left]
+    rw [Λ.map_smul_of_tower, h1, h2, ← integral_smul]
+    exact integral_congr_ae (.of_forall fun g ↦ (smul_mul_assoc _ _ _).symm)
+  calc ∫ x in Ioi 0, Λ (Real.exp (-L * x) • ρ (γ x) v)
+      = ∫ x in Ioi 0, ∫ g, K x g ∂μ := integral_congr_ae (.of_forall hA)
+    _ = ∫ g, (∫ x in Ioi 0, K x g) ∂μ := integral_integral_swap hKint
+    _ = ∫ g, Λ (φ g • ρ g u) ∂μ := integral_congr_ae (.of_forall fun g ↦ by
+        change ∫ x in Ioi 0, (Real.exp (-L * x) • ψ ((γ x)⁻¹ * g)) * Λ (ρ g u) =
+          Λ (φ g • ρ g u)
+        rw [integral_mul_const, hconv g, map_smul, smul_eq_mul])
 
 end Abstract
 
@@ -467,6 +580,35 @@ theorem exists_section_character_frequency (χ₀ : PontryaginDual C𝔽) (τ : 
   congr 1
   push_cast
   ring
+
+/-- Paper: Notation 10.2.1.1, p. 440. For every norm section there is a choice of unitary
+extensions of the norm-one characters that are trivial on the section. For such a choice the
+frequency `θ` of `exists_section_character_frequency` is zero.
+Deviation: The paper does not relate its choice of extensions to a section. This is the
+construction of `exists_spectralBasepointChoice` for an arbitrary section. -/
+theorem exists_spectralBasepointChoice_section (τ : ℝ≥0ˣ →ₜ* C𝔽)
+    (hτ : Function.RightInverse τ (ideleClassNorm F)) :
+    ∃ χ : PontryaginDual C₁ → PontryaginDual C𝔽,
+      IsSpectralBasepointChoice χ ∧ ∀ (ω : PontryaginDual C₁) (r : ℝ≥0ˣ), χ ω (τ r) = 1 := by
+  let P : C𝔽 →ₜ* C𝔽 := ContinuousMonoidHom.id C𝔽 / τ.comp m𝔽
+  have hP (x : C𝔽) : P x ∈ (ideleClassNorm F).ker := by
+    change ideleClassNorm F (x / τ (ideleClassNorm F x)) = 1
+    rw [map_div, hτ, div_self']
+  let p : C𝔽 →ₜ* (ideleClassNorm F).ker :=
+    ⟨P.toMonoidHom.codRestrict _ hP, P.continuous.subtype_mk _⟩
+  refine ⟨fun ω ↦ ω.comp p, fun ω ↦ ?_, fun ω r ↦ ?_⟩
+  · ext x : 1
+    change ω (p (x : C𝔽)) = ω x
+    apply congrArg ω
+    apply Subtype.ext
+    change (x : C𝔽) / τ (ideleClassNorm F x) = x
+    rw [show ideleClassNorm F (x : C𝔽) = 1 from x.property, map_one, div_one]
+  · have h1 : p (τ r) = 1 := by
+      apply Subtype.ext
+      change τ r / τ (ideleClassNorm F (τ r)) = 1
+      rw [hτ, div_self']
+    change ω (p (τ r)) = 1
+    rw [h1, map_one]
 
 /-- Along a norm section, the zeroth jet with real offset `b` and ordinate `t` is the
 exponential `exp ((b + (t + θ) i) x)` of the logarithmic coordinate, where `θ` is the frequency
@@ -710,5 +852,212 @@ theorem spectralStripBackwardLaplace_mem_globalThetaSobolev (a : ℝ) (τ : ℝ�
     mul_zero]
 
 end Triangular
+
+section Factorization
+
+/-- The section, run in the direction of decreasing norm, is a one-parameter subgroup of the
+idele class group. -/
+private theorem exists_section_oneParameter (τ : ℝ≥0ˣ →ₜ* C𝔽) :
+    ∃ a : LCATopologicalLie C𝔽, ∀ t : ℝ, a (Multiplicative.ofAdd t) = (τ expU(t))⁻¹ := by
+  refine ⟨{ toFun := fun y ↦ (τ expU(y.toAdd))⁻¹
+            map_one' := ?_
+            map_mul' := ?_
+            continuous_toFun := ?_ }, fun t ↦ rfl⟩
+  · change (τ expU((0 : ℝ)))⁻¹ = 1
+    rw [expUnits_zero, map_one, inv_one]
+  · intro y y'
+    change (τ expU(y.toAdd + y'.toAdd))⁻¹ = (τ expU(y.toAdd))⁻¹ * (τ expU(y'.toAdd))⁻¹
+    rw [expUnits_add, map_mul, mul_inv]
+  · exact (τ.continuous.comp (continuous_expUnits.comp continuous_toAdd)).inv
+
+/-- The derivative of a compactly supported function along a one-parameter subgroup vanishes
+off the closed support of the function. -/
+private theorem hasCompactSupport_bruhatDirectionalDeriv (a : LCATopologicalLie C𝔽)
+    {f : C𝔽 → ℂ} (hf : HasCompactSupport f) :
+    HasCompactSupport (bruhatDirectionalDeriv a f) := by
+  refine HasCompactSupport.intro hf.isCompact fun x hx ↦ ?_
+  have hcont : Continuous fun t : ℝ ↦ x * a (Multiplicative.ofAdd t) :=
+    continuous_const.mul (a.continuous.comp continuous_ofAdd)
+  have hx0 : x * a (Multiplicative.ofAdd (0 : ℝ)) ∈ (tsupport f)ᶜ := by
+    rw [ofAdd_zero, map_one, mul_one]
+    exact hx
+  have hev : (fun t : ℝ ↦ f (x * a (Multiplicative.ofAdd t))) =ᶠ[𝓝 0] fun _ ↦ (0 : ℂ) := by
+    filter_upwards [hcont.continuousAt.preimage_mem_nhds
+      ((isClosed_tsupport f).isOpen_compl.mem_nhds hx0)] with t ht
+    exact image_eq_zero_of_notMem_tsupport ht
+  change deriv (fun t : ℝ ↦ f (x * a (Multiplicative.ofAdd t))) 0 = 0
+  rw [hev.deriv_eq, deriv_const]
+
+/-- Every test is the convolution along the section of the one-sided exponential
+`exp (-L x)`, `x > 0`, with a test: namely with `L φ` minus the derivative of `φ` along the
+section in the direction of decreasing norm. This is the identity `φ = (φ' + L φ) ∗ p_L` of
+step 6 of the argument on #7405, with the derivative taken by `bruhatDirectionalDeriv`. -/
+theorem exists_bruhatCompactSupport_section_laplace (τ : ℝ≥0ˣ →ₜ* C𝔽) {L : ℝ} (hL : 0 < L)
+    (φ : BruhatCompactSupport C𝔽) :
+    ∃ ψ : BruhatCompactSupport C𝔽, ∀ g : C𝔽,
+      ∫ x in Ioi 0, Real.exp (-L * x) • ψ.val ((τ expU(x))⁻¹ * g) = φ.val g := by
+  obtain ⟨a, ha⟩ := exists_section_oneParameter τ
+  have hφs : IsBruhatSmooth φ.val := (mem_bruhatSmoothSubmodule_iff _).mp φ.property.1
+  have hφc : Continuous φ.val := continuous_of_bruhatSmooth hφs
+  let D : C𝔽 → ℂ := bruhatDirectionalDeriv a φ.val
+  have hDs : D ∈ bruhatSmoothSubmodule :=
+    bruhatDirectionalDeriv_mem_smooth a ⟨φ.val, φ.property.1⟩
+  have hDc : HasCompactSupport D := hasCompactSupport_bruhatDirectionalDeriv a φ.property.2
+  have hmem : (L : ℂ) • φ.val - D ∈ bruhatCompactSupportSubmodule C𝔽 :=
+    Submodule.sub_mem _ (Submodule.smul_mem _ (L : ℂ) φ.property) ⟨hDs, hDc⟩
+  let ψ : BruhatCompactSupport C𝔽 :=
+    (⟨(L : ℂ) • φ.val - D, hmem⟩ : bruhatCompactSupportSubmodule C𝔽)
+  have hψ (g : C𝔽) : ψ.val g = (L : ℂ) * φ.val g - D g := rfl
+  have hψc : Continuous ψ.val :=
+    continuous_of_bruhatSmooth ((mem_bruhatSmoothSubmodule_iff _).mp ψ.property.1)
+  refine ⟨ψ, fun g ↦ ?_⟩
+  obtain ⟨Cφ, hCφ⟩ := φ.property.2.exists_bound_of_continuous hφc
+  obtain ⟨Cψ, hCψ⟩ := ψ.property.2.exists_bound_of_continuous hψc
+  have hpt (x : ℝ) : (τ expU(x))⁻¹ * g = g * a (Multiplicative.ofAdd x) := by
+    rw [ha, mul_comm]
+  -- The orbit of `φ` through `g` is differentiable at every time.
+  have horbit (x : ℝ) : HasDerivAt (fun y : ℝ ↦ φ.val (g * a (Multiplicative.ofAdd y)))
+      (D (g * a (Multiplicative.ofAdd x))) x := by
+    have h0 : HasDerivAt (fun t : ℝ ↦
+        φ.val (g * a (Multiplicative.ofAdd x) * a (Multiplicative.ofAdd t)))
+        (D (g * a (Multiplicative.ofAdd x))) (x - x) := by
+      rw [sub_self]
+      exact hasDerivAt_bruhatDirectionalDeriv a (hφs 1) (g * a (Multiplicative.ofAdd x))
+    refine (HasDerivAt.comp_sub_const x x h0).congr_of_eventuallyEq (.of_forall fun y ↦ ?_)
+    change φ.val (g * a (Multiplicative.ofAdd y)) =
+      φ.val (g * a (Multiplicative.ofAdd x) * a (Multiplicative.ofAdd (y - x)))
+    rw [mul_assoc, ← map_mul, ← ofAdd_add, add_sub_cancel]
+  have hexp (x : ℝ) : HasDerivAt (fun y : ℝ ↦ ((Real.exp (-L * y) : ℝ) : ℂ))
+      ((Real.exp (-L * x) * (-L * 1) : ℝ) : ℂ) x :=
+    ((Real.hasDerivAt_exp (-L * x)).comp x ((hasDerivAt_id x).const_mul (-L))).ofReal_comp
+  -- A primitive of the damped orbit of `ψ`.
+  have hF (x : ℝ) : HasDerivAt
+      (fun y : ℝ ↦ -((Real.exp (-L * y) : ℝ) : ℂ) * φ.val (g * a (Multiplicative.ofAdd y)))
+      (Real.exp (-L * x) • ψ.val ((τ expU(x))⁻¹ * g)) x := by
+    convert (hexp x).neg.mul (horbit x) using 1
+    rw [hpt, hψ, Complex.real_smul]
+    simp only [Pi.neg_apply]
+    push_cast
+    ring
+  have hint : IntegrableOn (fun x : ℝ ↦ Real.exp (-L * x) • ψ.val ((τ expU(x))⁻¹ * g))
+      (Ioi 0) := by
+    refine Integrable.mono' ((exp_neg_integrableOn_Ioi 0 hL).mul_const Cψ) ?_
+      (.of_forall fun x ↦ ?_)
+    · exact ((Real.continuous_exp.comp (continuous_const.mul continuous_id)).smul
+        (hψc.comp (((τ.continuous.comp continuous_expUnits).inv).mul
+          continuous_const))).aestronglyMeasurable
+    · rw [norm_smul, Real.norm_of_nonneg (Real.exp_pos _).le]
+      exact mul_le_mul_of_nonneg_left (hCψ _) (Real.exp_pos _).le
+  have hlim : Tendsto
+      (fun y : ℝ ↦ -((Real.exp (-L * y) : ℝ) : ℂ) * φ.val (g * a (Multiplicative.ofAdd y)))
+      atTop (𝓝 0) := by
+    have h0 : Tendsto (fun y : ℝ ↦ Real.exp (-L * y) * Cφ) atTop (𝓝 (0 * Cφ)) :=
+      (Real.tendsto_exp_comp_nhds_zero.mpr
+        (tendsto_id.const_mul_atTop_of_neg (neg_neg_iff_pos.2 hL))).mul_const Cφ
+    rw [zero_mul] at h0
+    refine squeeze_zero_norm (fun y ↦ ?_) h0
+    rw [norm_mul, norm_neg, Complex.norm_real, Real.norm_of_nonneg (Real.exp_pos _).le]
+    exact mul_le_mul_of_nonneg_left (hCφ _) (Real.exp_pos _).le
+  rw [integral_Ioi_of_hasDerivAt_of_tendsto (hF 0).continuousAt.continuousWithinAt
+    (fun x _ ↦ hF x) hint hlim]
+  simp only [mul_zero, Real.exp_zero, Complex.ofReal_one, ofAdd_zero, map_one, mul_one,
+    neg_mul, one_mul, zero_sub, neg_neg]
+
+local notation "A(" φ ")" => hardySobolevTestAction μ𝔽 m𝔽 (-α) α s hI hs φ
+
+/-- The forward Laplace transform after the action of a test `ψ` is the action of the test
+`φ` that is the convolution of `ψ` along the section with the one-sided exponential. -/
+theorem spectralStripForwardLaplace_testAction (τ : ℝ≥0ˣ →ₜ* C𝔽)
+    (hτ : Function.RightInverse τ (ideleClassNorm F)) {L : ℝ} (hL : α < L)
+    (φ ψ : BruhatCompactSupport C𝔽)
+    (hconv : ∀ g : C𝔽,
+      ∫ x in Ioi 0, Real.exp (-L * x) • ψ.val ((τ expU(x))⁻¹ * g) = φ.val g) (u : W) :
+    spectralStripForwardLaplace hα hs τ hτ hL (A(ψ) u) = A(φ) u := by
+  have hφc : Continuous φ.val :=
+    continuous_of_bruhatSmooth ((mem_bruhatSmoothSubmodule_iff _).mp φ.property.1)
+  have hψc : Continuous ψ.val :=
+    continuous_of_bruhatSmooth ((mem_bruhatSmoothSubmodule_iff _).mp ψ.property.1)
+  have hAφ : A(φ) u = ∫ g, φ.val g • T(g) u ∂μ𝔽 :=
+    hardySobolev_eq_integral_translation_of_convolution μ𝔽 m𝔽 (-α) α s hI hs
+      (hφc.integrable_of_hasCompactSupport φ.property.2) φ.property.2 (A(φ))
+      (hardySobolevTestAction_apply μ𝔽 m𝔽 (-α) α s hI hs φ) u
+  have hAψ : A(ψ) u = ∫ g, ψ.val g • T(g) u ∂μ𝔽 :=
+    hardySobolev_eq_integral_translation_of_convolution μ𝔽 m𝔽 (-α) α s hI hs
+      (hψc.integrable_of_hasCompactSupport ψ.property.2) ψ.property.2 (A(ψ))
+      (hardySobolevTestAction_apply μ𝔽 m𝔽 (-α) α s hI hs ψ) u
+  have hMint : IntegrableOn
+      (fun x : ℝ ↦ Real.exp (-L * x) * (Real.exp (α * x) * (1 + x) ^ (s / 2))) (Ioi 0) := by
+    refine (integrableOn_exp_neg_mul_one_add_rpow (sub_pos.mpr hL) (s / 2)).congr
+      (.of_forall fun x ↦ ?_)
+    change Real.exp (-(L - α) * x) * (1 + x) ^ (s / 2) =
+      Real.exp (-L * x) * (Real.exp (α * x) * (1 + x) ^ (s / 2))
+    rw [← mul_assoc, ← Real.exp_add]
+    congr 2
+    ring
+  rw [spectralStripForwardLaplace_apply, hAφ, hAψ]
+  exact laplace_integral_smul_orbit μ𝔽 (hardySobolevTranslation μ𝔽 m𝔽 (-α) α s hI hs)
+    (fun w ↦ (exists_hardySobolevTranslation μ𝔽 m𝔽 (-α) α s hI hs).choose_spec.2.comp
+      (continuous_id.prodMk continuous_const))
+    (fun x ↦ τ expU(x)) (τ.continuous.comp continuous_expUnits) hφc φ.property.2 hψc
+    ψ.property.2
+    (fun x hx ↦ by
+      simpa only [abs_of_pos hx] using norm_hardySobolevTranslation_section_le hα hs τ hτ x)
+    hMint hconv u
+
+/-- Every test acts on the strip space as the forward Laplace transform after the action of
+another test. This is the factorization of step 6 of the argument on #7405. -/
+theorem exists_hardySobolevTestAction_eq_forwardLaplace_comp (τ : ℝ≥0ˣ →ₜ* C𝔽)
+    (hτ : Function.RightInverse τ (ideleClassNorm F)) {L : ℝ} (hL : α < L)
+    (φ : BruhatCompactSupport C𝔽) :
+    ∃ ψ : BruhatCompactSupport C𝔽, ∀ u : W,
+      A(φ) u = spectralStripForwardLaplace hα hs τ hτ hL (A(ψ) u) := by
+  obtain ⟨ψ, hψ⟩ := exists_bruhatCompactSupport_section_laplace τ (hα.trans_lt hL) φ
+  exact ⟨ψ, fun u ↦ (spectralStripForwardLaplace_testAction hα hs τ hτ hL φ ψ hψ u).symm⟩
+
+local notation "H₀(" a ")" => spectralSobolevQuotient F a hI hs
+local notation "Θ₀(" a ")" => globalThetaSobolev F a hI hs
+local notation "Aq(" a ", " φ ")" => spectralConvolution (F := F) a hI hs φ
+
+/-- The forward Laplace transform descends to the strip quotient, because it preserves the
+closed theta subspace. The descended operator is bounded. It should not be expected to be
+Hilbert–Schmidt on the whole quotient: its diagonal entries `(L - z)⁻¹` on the strip jets do not
+tend to zero along the components of the norm-one group. The argument on #7405 uses it on one
+component at a time. -/
+theorem exists_spectralStripForwardLaplace_quotient (a : ℝ) (τ : ℝ≥0ˣ →ₜ* C𝔽)
+    (hτ : Function.RightInverse τ (ideleClassNorm F)) {L : ℝ} (hL : α < L) :
+    ∃ Pq : H₀(a) →L[ℂ] H₀(a), ∀ u : W,
+      Pq ((Θ₀(a)).mkQ u) = (Θ₀(a)).mkQ (spectralStripForwardLaplace hα hs τ hτ hL u) := by
+  have hker : Θ₀(a) ≤
+      ((Θ₀(a)).mkQL.comp (spectralStripForwardLaplace hα hs τ hτ hL)).ker := by
+    intro v hv
+    exact (Submodule.Quotient.mk_eq_zero (Θ₀(a))).mpr
+      (spectralStripForwardLaplace_mem_globalThetaSobolev hα hs a τ hτ hL v hv)
+  refine ⟨(Θ₀(a)).liftQL _ hker, fun u ↦ ?_⟩
+  have h : (Θ₀(a)).liftQL _ hker ((Θ₀(a)).mkQ u) =
+      ((Θ₀(a)).mkQL.comp (spectralStripForwardLaplace hα hs τ hτ hL)) u := by
+    rw [Submodule.liftQL_apply]
+    rfl
+  with_reducible_and_instances exact h.trans (Submodule.mkQL_apply _ _)
+
+/-- On the strip quotient, the action of every test is the descended forward Laplace transform
+after the action of another test. On one component of the norm-one group this is the product
+of two operators of step 6 of the argument on #7405; no factorization of the test as a
+convolution of two tests is used. -/
+theorem exists_spectralConvolution_eq_forwardLaplace_comp (a : ℝ) (τ : ℝ≥0ˣ →ₜ* C𝔽)
+    (hτ : Function.RightInverse τ (ideleClassNorm F)) {L : ℝ} (hL : α < L)
+    (Pq : H₀(a) →L[ℂ] H₀(a))
+    (hPq : ∀ u : W,
+      Pq ((Θ₀(a)).mkQ u) = (Θ₀(a)).mkQ (spectralStripForwardLaplace hα hs τ hτ hL u))
+    (φ : BruhatCompactSupport C𝔽) :
+    ∃ ψ : BruhatCompactSupport C𝔽, Aq(a, φ) = Pq.comp (Aq(a, ψ)) := by
+  obtain ⟨ψ, hψ⟩ := exists_hardySobolevTestAction_eq_forwardLaplace_comp hα hs τ hτ hL φ
+  refine ⟨ψ, ?_⟩
+  ext q
+  obtain ⟨x, rfl⟩ := Submodule.Quotient.mk_surjective _ q
+  change Aq(a, φ) ((Θ₀(a)).mkQ x) = Pq (Aq(a, ψ) ((Θ₀(a)).mkQ x))
+  rw [spectralConvolution_mkQ, spectralConvolution_mkQ, hPq]
+  exact congrArg _ (hψ x)
+
+end Factorization
 
 end RiemannMasullo.Isolated
